@@ -67,7 +67,7 @@ if 'last_search_term' not in st.session_state:
 class HybridCompanyRegistryScraper:
     def __init__(self, company_id: str):
         self.company_id = company_id
-        self.api_key = os.environ.get('COMPANIES_HOUSE_API_KEY')
+        self.api_key = os.getenv('COMPANIES_HOUSE_API_KEY')
         if not self.api_key:
             st.error("🚨 System Error: COMPANIES_HOUSE_API_KEY environment variable not set!")
             st.stop()
