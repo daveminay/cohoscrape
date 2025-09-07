@@ -67,7 +67,10 @@ if 'last_search_term' not in st.session_state:
 class HybridCompanyRegistryScraper:
     def __init__(self, company_id: str):
         self.company_id = company_id
-        self.api_key = "9e8a7289-ce2e-44c6-9e4f-45a36819a1aa"
+        self.api_key = os.environ.get('COMPANIES_HOUSE_API_KEY')
+        if not self.api_key:
+            st.error("🚨 System Error: COMPANIES_HOUSE_API_KEY environment variable not set!")
+            st.stop()
         self.api_base = "https://api.companieshouse.gov.uk"
         self.web_base = "https://find-and-update.company-information.service.gov.uk"
 
@@ -159,26 +162,19 @@ class HybridCompanyRegistryScraper:
         return {}
 
     def get_pdf_links_scraping(self) -> List[Dict]:
-        """Get PDF download links via web scraping across all pages"""
         all_pdf_links = []
         page_num = 1
-        max_pages = 20  # Safety limit to prevent infinite loops
-        
+        max_pages = 20
         try:
             while page_num <= max_pages:
-                # Construct URL with page parameter
                 if page_num == 1:
                     url = f"{self.web_base}/company/{self.company_id}/filing-history"
                 else:
                     url = f"{self.web_base}/company/{self.company_id}/filing-history?page={page_num}"
-                
                 response = self.web_session.get(url, timeout=15)
                 if response.status_code != 200:
                     break
-                    
                 soup = BeautifulSoup(response.text, 'html.parser')
-                
-                # Look for PDF links on current page
                 page_pdf_links = []
                 for link in soup.find_all('a', href=True):
                     href = link['href']
@@ -188,51 +184,32 @@ class HybridCompanyRegistryScraper:
                             href = 'https://find-and-update.company-information.service.gov.uk' + href
                         elif not href.startswith('http'):
                             continue
-                        page_pdf_links.append({
-                            'url': href, 
-                            'description': text,
-                            'page': page_num
-                        })
-                
-                # If no PDFs found on this page, we might have reached the end
+                        page_pdf_links.append({'url': href, 'description': text, 'page': page_num})
                 if not page_pdf_links:
                     break
-                    
                 all_pdf_links.extend(page_pdf_links)
-                
-                # Check if there's a "Next" page link or higher page number
                 has_next_page = False
-                
-                # Look for pagination links
                 pagination_links = soup.find_all('a', href=True)
                 for pag_link in pagination_links:
                     href = pag_link.get('href', '')
                     text = pag_link.get_text().strip().lower()
-                    
-                    # Check for "next" link or higher page numbers
                     if ('next' in text or 
                         f'page={page_num + 1}' in href or
                         (text.isdigit() and int(text) > page_num)):
                         has_next_page = True
                         break
-                
-                # Also check for numbered page links like "2", "3", etc.
                 if not has_next_page:
                     for pag_link in soup.find_all('a', href=True):
                         if f'page={page_num + 1}' in pag_link.get('href', ''):
                             has_next_page = True
                             break
-                
                 if not has_next_page:
                     break
-                    
                 page_num += 1
-                time.sleep(1)  # Polite delay between page requests
-                
+                time.sleep(1)
             return all_pdf_links
-            
         except Exception:
-            return all_pdf_links  # Return what we got so far
+            return all_pdf_links
 
     def download_pdf(self, pdf_info: Dict, filename: str) -> bool:
         try:
@@ -477,7 +454,6 @@ class HybridCompanyRegistryScraper:
         if self.temp_dir and os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 
-
 def main():
     if not check_password():
         return
@@ -491,16 +467,13 @@ def main():
 
     st.markdown("---")
 
-    # Handle extraction states
     if st.session_state.get('extraction_in_progress', False):
         company_id = st.session_state.get('selected_company', '')
-        
+
         # Check if extraction is already complete
         if st.session_state.get('extraction_complete', False):
-            # Show download interface
             st.success(f"✅ Successfully extracted company {company_id}!")
             st.info(f"📦 Package contains {st.session_state.file_count} files")
-
             st.download_button(
                 label="📥 Download Company Data ZIP",
                 data=st.session_state.zip_data,
@@ -529,27 +502,20 @@ def main():
                 if st.button("Logout"):
                     logout()
         else:
-            # Run extraction only once
             st.info(f"Extracting data for company: {company_id}")
-
             try:
                 scraper = HybridCompanyRegistryScraper(company_id)
                 scraper.create_temp_directory()
-
                 zip_path, file_count = scraper.create_zip_file()
-
                 if zip_path and os.path.exists(zip_path):
                     with open(zip_path, 'rb') as zip_file:
                         zip_data = zip_file.read()
-
                     # Store results in session state
                     st.session_state.zip_data = zip_data
                     st.session_state.file_count = file_count
                     st.session_state.extraction_complete = True
-
                     scraper.cleanup()
-                    st.rerun()  # Refresh to show download interface
-
+                    st.rerun()
                 else:
                     st.error("Failed to create the data package. Please try again.")
                     st.session_state.extraction_in_progress = False
@@ -561,10 +527,8 @@ def main():
                     scraper.cleanup()
                 except:
                     pass
-
         return
 
-    # Main interface tabs
     tab1, tab2 = st.tabs(["🔍 Search Companies", "📝 Direct Entry"])
 
     with tab1:
@@ -577,7 +541,6 @@ def main():
         st.session_state.last_search_term = search_term
 
         col1, col2 = st.columns(2)
-
         with col1:
             if st.button("🔍 Search Companies"):
                 if search_term:
@@ -590,41 +553,33 @@ def main():
                         st.rerun()
                 else:
                     st.error("Please enter a search term!")
-
         with col2:
             if st.button("🔄 Clear Results"):
                 st.session_state.search_results = []
                 st.session_state.search_term = ""
                 st.session_state.last_search_term = ""
                 st.rerun()
-
         if st.session_state.search_results:
             st.success(f"Found {len(st.session_state.search_results)} companies:")
-
             for i, company in enumerate(st.session_state.search_results):
                 company_name = company.get('title', 'Unknown Company')
                 company_number = company.get('company_number', 'Unknown')
                 company_status = company.get('company_status', 'Unknown')
                 address = company.get('address_snippet', 'No address available')
-
                 with st.container():
                     col1, col2 = st.columns([3, 1])
-
                     with col1:
                         st.write(f"**{company_name}**")
                         st.write(f"Company Number: {company_number}")
                         st.write(f"Status: {company_status}")
                         st.write(f"Address: {address}")
-
                     with col2:
                         if st.button("Extract Data", key=f"extract_{i}"):
                             st.session_state.selected_company = company_number
                             st.session_state.extraction_in_progress = True
                             st.session_state.extraction_complete = False
                             st.rerun()
-
                     st.divider()
-
         elif st.session_state.search_term and not st.session_state.search_results:
             st.warning("No companies found with that search term. Try a different search.")
 
@@ -634,7 +589,6 @@ def main():
             "Enter Company Number:",
             placeholder="e.g., 15877621, 00006245, SC534841"
         )
-
         if st.button("🔍 Extract Company Data"):
             if company_id:
                 st.session_state.selected_company = company_id
